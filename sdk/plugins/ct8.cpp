@@ -322,39 +322,39 @@ public:
             // If the face finder doesn't find anything mark the output as a failure
             if (faceLocations.empty() ) {
                 dst.file.setBool("FTE");
-                return;
             }
+            else {
+                QList<QRectF> ROIs;
+                QList<QPointF> landmarks;
+                FRsdk::Face::LocationSet::const_iterator faceLocationSetIterator = faceLocations.begin();
+                bool any_eyes = false;
 
-            QList<QRectF> ROIs;
-            QList<QPointF> landmarks;
-            FRsdk::Face::LocationSet::const_iterator faceLocationSetIterator = faceLocations.begin();
-            bool any_eyes = false;
+                // Attempt to detect eyes in any face ROIs that were detected
+                while (faceLocationSetIterator != faceLocations.end()) {
+                    FRsdk::Face::Location faceLocation = *faceLocationSetIterator; faceLocationSetIterator++;
+                    FRsdk::Eyes::LocationSet currentEyesLocations = eyesFinder->find(img, faceLocation);
 
-            // Attempt to detect eyes in any face ROIs that were detected
-            while (faceLocationSetIterator != faceLocations.end()) {
-                FRsdk::Face::Location faceLocation = *faceLocationSetIterator; faceLocationSetIterator++;
-                FRsdk::Eyes::LocationSet currentEyesLocations = eyesFinder->find(img, faceLocation);
+                    if (currentEyesLocations.size() > 0) {
+                        any_eyes = true;
+                        ROIs.append(QRectF(faceLocation.pos.x(), faceLocation.pos.y(), faceLocation.width, faceLocation.width));
+                        landmarks.append(QPointF(currentEyesLocations.front().first.x(), currentEyesLocations.front().first.y()));
+                        landmarks.append(QPointF(currentEyesLocations.front().second.x(), currentEyesLocations.front().second.y()));
 
-                if (currentEyesLocations.size() > 0) {
-                    any_eyes = true;
-                    ROIs.append(QRectF(faceLocation.pos.x(), faceLocation.pos.y(), faceLocation.width, faceLocation.width));
-                    landmarks.append(QPointF(currentEyesLocations.front().first.x(), currentEyesLocations.front().first.y()));
-                    landmarks.append(QPointF(currentEyesLocations.front().second.x(), currentEyesLocations.front().second.y()));
+                        dst += src;
+                    }
 
-                    dst += src;
+                    if (any_eyes && !Globals->enrollAll && !dst.isEmpty()) break;
                 }
 
-                if (any_eyes && !Globals->enrollAll && !dst.isEmpty()) break;
+                // If eye detection failed, mark the output as a failure
+                if (!any_eyes) {
+                    dst.file.setBool("FTE");
+                }
+                else {
+                    dst.file.setROIs(ROIs);
+                    dst.file.setLandmarks(landmarks);
+                }
             }
-
-            // If eye detection failed, mark the output as a failure
-            if (!any_eyes) {
-                dst.file.setBool("FTE");
-                return;
-            }
-
-            dst.file.setROIs(ROIs);
-            dst.file.setLandmarks(landmarks);
         } catch (std::exception &e) {
             qFatal("CT8Enroll Exception: %s", e.what());
         }
@@ -382,6 +382,11 @@ struct CT8Enroll : public UntrainableTransform
     // is their face representation.
     void project(const Template &src, Template &dst) const
     {
+        if (src.empty()) {
+            dst.file.setBool("FTE");
+            dst.m() = Mat();
+            return;
+        }
         try {
             FRsdk::CountedPtr<FRsdk::ImageBody> i(new FRsdk::OpenCVImageBody(src));
             FRsdk::Image img(i);
